@@ -1,0 +1,404 @@
+---
+title: "Lab 05 — Sampling and Bootstrap Distributions"
+author: "EAES 480 — Modern Statistics in Earth & Environmental Science"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    theme: cosmo
+    highlight: tango
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    code_folding: hide
+    df_print: paged
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(lubridate)
+library(janitor)
+
+knitr::opts_chunk$set(
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+# Overview
+
+In EAES we almost never observe an entire population. Instead, we take **samples** and compute **point estimates** (like a mean) to infer **population parameters**.
+
+This lab focuses on four core ideas:
+
+1. **Relative error** of point estimates (accuracy)
+2. **Standard error (SE)** and how it changes with sample size
+3. How **replication** (many repeated samples) creates an approximate **sampling distribution**
+4. (Intro) **Bootstrap** distributions: resampling from one sample to approximate uncertainty
+
+## Coding expectations (Week 7+)
+
+This lab uses a mix of:
+- **Fill-in-the-blank** (quick checks)
+- **Partial pipelines** (you finish the analysis)
+- **From-scratch chunks** (you write the full solution)
+
+Use slides + past labs + Discord as needed, but make sure your final code is **your own** and runs **top-to-bottom**.
+
+---
+
+# Data
+
+## Load data (partial pipeline)
+
+Complete the pipeline so `df` is a clean tibble. Filter for 2023, and replace fill values (-9999) with na.
+
+```{r load_data, echo=TRUE, eval=FALSE}
+# GOAL: Read the CSV from the repo and clean column names.
+# TODO: finish this pipeline.
+
+df <- read_csv("data/us-ams-simple.csv", na = c("____")) %>%
+  ___ %>%
+  ___
+
+glimpse(df)
+```
+
+## Derive time columns 
+
+Write code to add:
+- `date` from `year_local` + `doy`
+- `month` as labeled abbreviated month (Jan–Dec)
+- `day_night` as "Day"/"Night" from `daytime` (0/1)
+
+```{r derive_time, echo=TRUE, eval=FALSE}
+# GOAL: Create date/month/day_night columns.
+# HINT: DOY is 1-indexed, so use (doy - 1) with origin "YYYY-01-01".
+
+df <- df %>%
+ mutate(
+    # TODO: create a Date column from year_local and doy
+    # HINT: Jan 1 is DOY = 1, so use (doy - 1) with origin = "YYYY-01-01"
+    date = as.Date(___ - 1, origin = paste0(___, "-01-01")),
+
+    # TODO: create a month column (numeric 1–12 or labeled months)
+    month = month(___, label = TRUE, abbr = TRUE),
+
+    # TODO: make a day/night label using daytime (0/1)
+    day_night = if_else(daytime == 1, "Day", "Night")
+  )
+
+df %>% count(month)
+df %>% count(day_night)
+```
+
+---
+
+# Population parameters vs point estimates
+
+## 1) Choose variables (fill-in)
+
+Pick **2–3 variables** to analyze. Include at least **one flux** variable (e.g., `nee`, `fc`, `gpp`) and optionally one meteorological variable (e.g., `ta`, `le`).
+
+```{r choose_vars, echo=TRUE, eval=FALSE}
+vars <- c(
+  ___,  # e.g., "fc"
+  ___,  # e.g., "ta"
+  ___   # optional third variable
+)
+
+# CHECK: confirm these columns exist (should return character(0))
+setdiff(vars, names(df))
+```
+
+---
+
+## 2) Compute population parameters (partial pipeline)
+
+Complete the code to compute **population mean** and **population SD** for each selected variable.
+
+Your output should be a tibble named `pop` with columns: `var`, `mean`, `sd`.
+
+```{r pop_params, echo=TRUE, eval=FALSE}
+# GOAL: Create a tidy table of population parameters for vars.
+# TODO: complete this pipeline.
+
+pop <- df %>%
+  summarise(across(
+    all_of(vars),
+    list(
+      mean = ~mean(.x, na.rm = TRUE),
+      sd   = ~sd(.x, na.rm = TRUE)
+    ),
+    .names = "{.col}__{.fn}"
+  )) %>%   
+  pivot_longer(
+    everything(),
+    names_to = c("var", "stat"),
+    names_sep = "__",
+    values_to = "value"
+  ) %>%   
+  pivot_wider(names_from = ___, values_from = ___)       # TODO: pivot_wider
+
+pop
+```
+
+**Prompt (2–3 sentences):** Which variable has the largest population SD? What does that imply about the variability of that process?
+
+> *Write your answer here.*
+
+---
+
+# Relative error for point estimates (accuracy)
+
+We will estimate the population mean with a sample mean, then compute **relative error**:
+
+\[
+\text{Relative error (\%)} = 100 \times \frac{|\mu - \bar{x}|}{|\mu|}
+\]
+
+## 3) One sample: compute relative error 
+
+Write code to:
+
+1. set a seed
+2. choose a sample size `n_samp`
+3. draw a simple random sample `samp`
+4. compute `sample_mean` for each variable in `vars`
+5. join to population means from `pop`
+6. compute `rel_error_pct` for each variable
+
+Return a tibble with columns: `var`, `sample_mean`, `pop_mean`, `rel_error_pct`.
+
+```{r one_sample_relerr, echo=TRUE, eval=FALSE}
+# GOAL: Relative error for point estimates from one random sample.
+
+set.seed(___)
+n_samp <- ___
+
+samp <- ___
+
+# get mean point estimate for each variable
+est <- samp %>%
+  summarise(across(all_of(___), ~mean(.x, na.rm = ___))) %>%
+  pivot_longer(everything(), names_to = "var", values_to = "sample_mean")
+
+# compute the relative error for each variable
+relerr <- est %>%
+  left_join(pop %>% select(var, pop_mean = mean), by = "var") %>%
+  mutate(rel_error_pct = 100 * abs(___ - ___) / abs(___)) %>%
+  arrange(desc(rel_error_pct))
+
+relerr
+```
+
+**Prompt (3–4 sentences):** Which variable had the largest relative error at your chosen `n_samp`?  
+Give a scientific reason why some variables are harder to estimate from a small sample.
+
+> *Write your answer here.*
+
+---
+
+## 4) Relative error vs sample size (partial code + you complete)
+
+We will focus on **one variable** and simulate many repeated studies. The next code chunk is doing quite a lot. Please review the #comments throughout and check you understand generally what each section is doing.
+
+```{r relerr_by_n, echo=TRUE, eval=FALSE}
+set.seed(480)
+
+n_grid <- c(___, ___, ___, ___)   # e.g., c(25, 100, 300, 1000)
+reps <- ___                        # e.g., 500 or 1000
+
+target_var <- "___"                # e.g., "fch4" or "fc"
+
+# Pull the population vector (remove missing values once, up front)
+x_pop <- df[[target_var]]
+x_pop <- x_pop[!is.na(x_pop)]
+
+# Population mean for the chosen variable
+pop_mean_target <- pop %>%
+  filter(var == target_var) %>%
+  pull(mean)
+
+# ---- Simulation using explicit for loops ----
+sim_list <- vector("list", length(n_grid))
+
+for (i in seq_along(n_grid)) {
+
+  n_samp <- n_grid[i]
+
+  # store relative error from each repeated "study"
+  relerrs <- numeric(reps)
+
+  for (j in seq_len(reps)) {
+
+    x_samp <- sample(x_pop, size = n_samp, replace = FALSE)
+    xbar <- mean(x_samp)
+
+    relerrs[j] <- 100 * abs(pop_mean_target - ___) / abs(pop_mean_target)
+  }
+
+  sim_list[[i]] <- tibble(
+    n = n_samp,
+    rel_error_pct = relerrs
+  )
+}
+
+sim_relerr <- bind_rows(sim_list)
+
+sim_relerr
+```
+
+### Summarize + plot (from scratch)
+
+1) Summarize the simulated relative error by `n` using:
+- median
+- 90th percentile
+
+2) Make a plot that communicates “relative error decreases with n”.
+
+```{r summarize_plot_relerr, echo=TRUE, eval=FALSE}
+# GOAL: Summarize and plot the relationship between n and relative error.
+# TODO: write your own code.
+
+summary_relerr <- ___
+summary_relerr
+
+p_relerr <- ___
+p_relerr
+```
+
+**Prompt (3–4 sentences):** Describe the pattern. Is improvement from n=25→100 larger than 300→1000?  
+Why does accuracy show “diminishing returns” as n increases?
+
+> *Write your answer here.*
+
+---
+
+# Standard error and sampling distributions
+
+For the sample mean, the standard error is approximately:
+
+\[
+SE(\bar{x}) \approx \frac{\sigma}{\sqrt{n}}
+\]
+
+where \(\sigma\) is population SD.
+
+## 5) Theory vs simulation (partial pipeline)
+
+Compute:
+- theoretical SE
+- simulated SD of sample means (over many replications)
+
+```{r se_compare, echo=TRUE, eval=FALSE}
+set.seed(480)
+
+# TODO: pick a variable and sample size
+target_var <- ___
+n_samp <- ___
+reps <- ___
+
+pop_sd_target <- pop %>% filter(var == target_var) %>% pull(sd)
+pop_mean_target <- pop %>% filter(var == target_var) %>% pull(mean)
+
+means <- replicate(
+  reps,
+  mean(sample(df[[target_var]], size = n_samp, replace = FALSE), na.rm = TRUE)
+)
+
+se_theory <- ___
+se_sim    <- ___
+
+tibble(
+  target_var = target_var,
+  n = n_samp,
+  se_theory = se_theory,
+  se_simulated = se_sim
+)
+```
+
+### Plot the sampling distribution (fill-in)
+
+```{r plot_sampling_dist, echo=TRUE, eval=FALSE}
+tibble(mean_est = means) %>%
+  ggplot(aes(x = mean_est)) +
+  geom_histogram(bins = ___, alpha = 0.85) +
+  geom_vline(xintercept = pop_mean_target, linetype = "dashed", linewidth = 1.1) +
+  theme_classic(base_size = 18) +
+  labs(
+    x = paste0("Sample mean of ", target_var),
+    y = "Count",
+    title = "Sampling distribution of the mean",
+    subtitle = paste0("n = ", n_samp, "; reps = ", reps, " (dashed = population mean)")
+  )
+```
+
+**Prompt (3–5 sentences):** How close were `se_theory` and `se_simulated`?  
+What changes if you increase `n_samp` vs increase `reps`?
+
+> *Write your answer here.*
+
+---
+
+# Bootstrap intuition (one sample, many resamples)
+
+Bootstrap resampling approximates uncertainty **when you only have one sample**.
+
+Key idea: treat your sample as a stand-in for the population and resample **with replacement**.
+
+## 6) Bootstrap distribution of the mean 
+
+Write code to:
+
+- take ONE sample of size `n_samp` from `df`
+- generate `B` bootstrap resamples (with replacement) from that sample
+- compute bootstrap means
+- compute bootstrap SD
+- plot the bootstrap distribution
+
+```{r bootstrap_mean, echo=TRUE, eval=FALSE}
+set.seed(480)
+
+# TODO: choose settings
+target_var <- ___
+n_samp <- ___
+B <- ___
+
+# one "field campaign" sample
+samp <- tibble(x = sample(x_pop, size = n_samp, replace = FALSE))
+
+# bootstrap sampling of the mean
+boot_means <- replicate(
+  ___,
+  mean(sample(samp$x, size = ___, replace = TRUE))
+)
+
+boot_sd <- sd(___)
+
+tibble(
+  sample_mean = mean(samp$x),
+  boot_sd = boot_sd
+)
+```
+
+```{r plot_boot, echo=TRUE, eval=FALSE}
+# TODO: plot boot_means and mark the sample mean
+___
+```
+
+**Prompt (4–6 sentences):** Compare the bootstrap distribution to the sampling distribution from Part III.  
+What is the bootstrap trying to approximate? When is bootstrap especially useful in EAES?
+
+> *Write your answer here.*
+
+---
+
+
+
+
+# Submission
+
+- Knit your `.Rmd` to HTML.
+- Commit and push both the `.Rmd` to your GitHub repo.
